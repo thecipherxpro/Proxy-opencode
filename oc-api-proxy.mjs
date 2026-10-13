@@ -6,6 +6,32 @@ const app = express();
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
 
+function requireProxyApiKey(req, res, next) {
+  const requiredKey = process.env.PROXY_API_KEY;
+  const suppliedKey = req.headers['x-api-key'];
+
+  if (!requiredKey) {
+    console.error('PROXY_API_KEY is not configured');
+
+    return res.status(503).json({
+      error: {
+        message: 'API authentication is not configured',
+        type: 'server_error'
+      }
+    });
+  }
+
+  if (!suppliedKey || suppliedKey !== requiredKey) {
+    return res.status(401).json({
+      error: {
+        message: 'Unauthorized: Invalid or missing API key',
+        type: 'authentication_error'
+      }
+    });
+  }
+
+  next();
+}
 const MODEL_MAP = {
   'big-pickle': 'big-pickle',
   'mimo-v2.6-flash-free': 'mimo-v2.6-flash-free',
@@ -45,14 +71,14 @@ app.get('/', (req, res) => {
 
 app.get('/health', (req, res) => res.status(200).send('OK'));
 
-app.get('/v1/models', (req, res) => {
+app.get('/v1/models', requireProxyApiKey, (req, res) => {
   res.status(200).json({
     object: 'list',
     data: Object.keys(MODEL_MAP).map(id => ({ id, object: 'model', created: 1700000000, owned_by: 'opencode-zen' }))
   });
 });
 
-app.post('/v1/chat/completions', async (req, res) => {
+app.post('/v1/chat/completions', requireProxyApiKey, async (req, res) => {
   try {
     const { model, messages, stream, tools, temperature, top_p } = req.body;
 
