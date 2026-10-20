@@ -37,7 +37,7 @@ function generateCanonicalId(prefix) {
 app.get('/', (req, res) => {
   res.status(200).json({
     status: 'online',
-    domain: 'AI.cpxs.ca',
+    domain: 'ai.genzee.lt',
     service: 'OpenCode Free Model Bypass Proxy'
   });
 });
@@ -88,12 +88,13 @@ app.post('/v1/chat/completions', async (req, res) => {
     const bypassHeaders = {
       'Content-Type': 'application/json',
       'Authorization': activeToken,
-      'User-Agent': 'opencode/1.18.31 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14',
+      'User-Agent': 'opencode/1.19.0 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14',
       'x-opencode-client': 'cli',
-      'x-opencode-version': '1.18.31',
+      'x-opencode-version': '1.19.0',
       'x-opencode-project': 'global',
-      'x-opencode-session': generateCanonicalId('ses'),
-      'x-opencode-request': generateCanonicalId('msg')
+      'x-opencode-request': generateCanonicalId('msg'),
+      'x-opencode-session': generateCanonicalId('ses')
+  
     };
 
     // OpenCode gateway requires stream: true
@@ -184,5 +185,5 @@ app.post('/v1/chat/completions', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Bypass Proxy running on port ${PORT} for AI.cpxs.ca`);
+  console.log(`Bypass Proxy running on port ${PORT} for ai.genzee.lt`);
 });
