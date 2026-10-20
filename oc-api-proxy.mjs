@@ -37,7 +37,7 @@ function generateCanonicalId(prefix) {
 app.get('/', (req, res) => {
   res.status(200).json({
     status: 'online',
-    domain: 'AI.cpxs.ca',
+    domain: 'ai.genzee.lt',
     service: 'OpenCode Free Model Bypass Proxy'
   });
 });
@@ -184,5 +184,5 @@ app.post('/v1/chat/completions', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Bypass Proxy running on port ${PORT} for AI.cpxs.ca`);
+  console.log(`Bypass Proxy running on port ${PORT} for ai.genzee.lt`);
 });
