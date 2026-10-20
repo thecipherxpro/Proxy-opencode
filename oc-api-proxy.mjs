@@ -89,9 +89,9 @@ app.post('/v1/chat/completions', async (req, res) => {
     const bypassHeaders = {
       'Content-Type': 'application/json',
       'Authorization': activeToken,
-      'User-Agent': 'opencode/1.18.31 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14',
+      'User-Agent': 'opencode/2.0.29 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14',
       'x-opencode-client': 'cli',
-      'x-opencode-version': '1.18.31',
+      'x-opencode-version': '2.0.29',
       'x-opencode-project': 'global',
       'x-opencode-session': generateCanonicalId('ses'),
       'x-opencode-request': generateCanonicalId('msg')
