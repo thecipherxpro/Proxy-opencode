@@ -11,7 +11,7 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 
-// OpenCode Zen Free Tier Model Map
+// Active OpenCode Zen Free Models
 const MODEL_MAP = {
   'big-pickle': 'big-pickle',
   'mimo-v2.6-flash-free': 'mimo-v2.6-flash-free',
@@ -20,10 +20,11 @@ const MODEL_MAP = {
   'qwen3.6-plus-free': 'qwen3.6-plus-free',
   'space-bunny-free': 'space-bunny-free',
   'longcat-2.5-preview-free': 'longcat-2.5-preview-free',
-  'deepseek-v4-flash-free': 'big-pickle'
+  'deepseek-v4-flash-free': 'big-pickle',
+  'gpt-4o-mini-free': 'mimo-v2.6-flash-free'
 };
 
-// Generates OpenCode canonical ID shape: <prefix>_<12 hex timestamp><14 base62 random>
+// Generates canonical ID format: <prefix>_<12 hex timestamp><14 base62 chars>
 function generateCanonicalId(prefix) {
   const hex12 = Math.floor(Date.now()).toString(16).padStart(12, '0').slice(-12);
   const base62Chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -48,7 +49,7 @@ app.get('/debug', (req, res) => {
   const envToken = process.env.OPENCODE_SESSION_TOKEN;
   res.status(200).json({
     hasEnvToken: !!envToken && envToken !== 'public',
-    tokenPreview: envToken ? `${envToken.substring(0, 8)}...` : 'NONE'
+    tokenPreview: envToken ? `${envToken.substring(0, 10)}...` : 'NONE'
   });
 });
 
@@ -76,7 +77,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     const envToken = process.env.OPENCODE_SESSION_TOKEN;
 
     let activeToken = 'Bearer public';
-    if (incomingAuth && incomingAuth !== 'Bearer test' && incomingAuth !== 'Bearer public') {
+    if (incomingAuth && incomingAuth !== 'Bearer test' && incomingAuth !== 'Bearer public' && !incomingAuth.includes('sk-dummy')) {
       activeToken = incomingAuth;
     } else if (envToken && envToken !== 'public') {
       activeToken = envToken.startsWith('Bearer ') ? envToken : `Bearer ${envToken}`;
@@ -88,13 +89,12 @@ app.post('/v1/chat/completions', async (req, res) => {
     const bypassHeaders = {
       'Content-Type': 'application/json',
       'Authorization': activeToken,
-      'User-Agent': 'opencode/1.19.0 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14',
+      'User-Agent': 'opencode/1.18.31 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14',
       'x-opencode-client': 'cli',
-      'x-opencode-version': '1.19.0',
+      'x-opencode-version': '1.18.31',
       'x-opencode-project': 'global',
-      'x-opencode-request': generateCanonicalId('msg'),
-      'x-opencode-session': generateCanonicalId('ses')
-  
+      'x-opencode-session': generateCanonicalId('ses'),
+      'x-opencode-request': generateCanonicalId('msg')
     };
 
     // OpenCode gateway requires stream: true
@@ -119,7 +119,7 @@ app.post('/v1/chat/completions', async (req, res) => {
       }
     }
 
-    // Direct streaming response to client
+    // Direct streaming response
     if (stream && upstreamResponse.body) {
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
@@ -134,7 +134,7 @@ app.post('/v1/chat/completions', async (req, res) => {
       return res.end();
     }
 
-    // Aggregate SSE chunks into standard non-streaming OpenAI response
+    // Aggregate streaming chunks into non-streaming OpenAI JSON
     const reader = upstreamResponse.body.getReader();
     const decoder = new TextDecoder();
     let accumulatedContent = '';
@@ -154,7 +154,7 @@ app.post('/v1/chat/completions', async (req, res) => {
             const delta = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.delta?.text || '';
             accumulatedContent += delta;
           } catch (e) {
-            // Ignore partial SSE JSON frames
+            // Ignore partial SSE chunk boundary parse errors
           }
         }
       }
