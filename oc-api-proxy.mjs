@@ -11,7 +11,6 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 
-// OpenCode Zen Free Tier Model Map
 const MODEL_MAP = {
   'big-pickle': 'big-pickle',
   'mimo-v2.6-flash-free': 'mimo-v2.6-flash-free',
@@ -23,15 +22,10 @@ const MODEL_MAP = {
   'deepseek-v4-flash-free': 'big-pickle'
 };
 
-// Generates OpenCode canonical ID shape: <prefix>_<12 hex timestamp><14 base62 random>
-function generateCanonicalId(prefix) {
-  const hex12 = Math.floor(Date.now()).toString(16).padStart(12, '0').slice(-12);
-  const base62Chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  let base62Tail = '';
-  for (let i = 0; i < 14; i++) {
-    base62Tail += base62Chars.charAt(Math.floor(Math.random() * base62Chars.length));
-  }
-  return `${prefix}_${hex12}${base62Tail}`;
+function generateOpenCodeSession() {
+  const hexTimestamp = Math.floor(Date.now()).toString(16);
+  const randomTail = Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+  return `ses_${hexTimestamp}${randomTail}`;
 }
 
 app.get('/', (req, res) => {
@@ -44,6 +38,7 @@ app.get('/', (req, res) => {
 
 app.get('/health', (req, res) => res.status(200).send('OK'));
 
+// Debug endpoint to verify if Hostinger loaded your session token
 app.get('/debug', (req, res) => {
   const envToken = process.env.OPENCODE_SESSION_TOKEN;
   res.status(200).json({
@@ -72,14 +67,24 @@ app.post('/v1/chat/completions', async (req, res) => {
       return res.status(400).json({ error: { message: 'Messages array is required' } });
     }
 
+    // Use token sent in cURL/Client header FIRST, then fallback to Hostinger env var
     const incomingAuth = req.headers['authorization'];
     const envToken = process.env.OPENCODE_SESSION_TOKEN;
-
-    let activeToken = 'Bearer public';
+    
+    let activeToken = 'public';
     if (incomingAuth && incomingAuth !== 'Bearer test' && incomingAuth !== 'Bearer public') {
       activeToken = incomingAuth;
-    } else if (envToken && envToken !== 'public') {
+    } else if (envToken) {
       activeToken = envToken.startsWith('Bearer ') ? envToken : `Bearer ${envToken}`;
+    }
+
+    if (activeToken === 'public') {
+      return res.status(401).json({
+        error: {
+          message: "Missing OpenCode token. Pass your OpenCode token in the Authorization header ('Authorization: Bearer YOUR_TOKEN') or set OPENCODE_SESSION_TOKEN in Hostinger.",
+          type: "unauthorized"
+        }
+      });
     }
 
     const targetModel = MODEL_MAP[model] || 'big-pickle';
@@ -88,37 +93,26 @@ app.post('/v1/chat/completions', async (req, res) => {
     const bypassHeaders = {
       'Content-Type': 'application/json',
       'Authorization': activeToken,
-      'User-Agent': 'opencode/1.18.31 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14',
+      'User-Agent': 'opencode/1.18.32 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14',
       'x-opencode-client': 'cli',
-      'x-opencode-version': '1.18.31',
+      'x-opencode-version': '1.18.32',
       'x-opencode-project': 'global',
-      'x-opencode-session': generateCanonicalId('ses'),
-      'x-opencode-request': generateCanonicalId('msg')
+      'x-opencode-session': generateOpenCodeSession(),
+      'x-opencode-request': `msg_${Math.random().toString(36).substring(2, 12)}`
     };
 
-    // OpenCode gateway requires stream: true
     const upstreamResponse = await fetch(upstreamUrl, {
       method: 'POST',
       headers: bypassHeaders,
       body: JSON.stringify({
         model: targetModel,
         messages,
-        stream: true,
+        stream: !!stream,
         ...(temperature !== undefined && { temperature }),
         ...(top_p !== undefined && { top_p })
       })
     });
 
-    if (!upstreamResponse.ok) {
-      const errText = await upstreamResponse.text();
-      try {
-        return res.status(upstreamResponse.status).json(JSON.parse(errText));
-      } catch (e) {
-        return res.status(upstreamResponse.status).send(errText);
-      }
-    }
-
-    // Direct streaming response to client
     if (stream && upstreamResponse.body) {
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
@@ -133,48 +127,8 @@ app.post('/v1/chat/completions', async (req, res) => {
       return res.end();
     }
 
-    // Aggregate SSE chunks into standard non-streaming OpenAI response
-    const reader = upstreamResponse.body.getReader();
-    const decoder = new TextDecoder();
-    let accumulatedContent = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n');
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed.startsWith('data: ') && trimmed !== 'data: [DONE]') {
-          try {
-            const parsed = JSON.parse(trimmed.slice(6));
-            const delta = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.delta?.text || '';
-            accumulatedContent += delta;
-          } catch (e) {
-            // Ignore partial SSE JSON frames
-          }
-        }
-      }
-    }
-
-    return res.status(200).json({
-      id: `chatcmpl-${Date.now()}`,
-      object: 'chat.completion',
-      created: Math.floor(Date.now() / 1000),
-      model: targetModel,
-      choices: [
-        {
-          index: 0,
-          message: {
-            role: 'assistant',
-            content: accumulatedContent
-          },
-          finish_reason: 'stop'
-        }
-      ]
-    });
+    const data = await upstreamResponse.json();
+    return res.status(upstreamResponse.status).json(data);
 
   } catch (error) {
     console.error('Bypass Proxy Error:', error);
